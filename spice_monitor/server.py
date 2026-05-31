@@ -2063,5 +2063,6 @@ class HTTPServer:
             client.close()
 
 if __name__ == '__main__':
+    import os
     port = int(os.environ.get('PORT', 8080))
     HTTPServer(host='0.0.0.0', port=port).run()
