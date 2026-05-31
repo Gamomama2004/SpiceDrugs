@@ -182,3 +182,17 @@ class SpiceDatabase:
             'total_stock': sum(s['in_stock'] for s in self.spices),
             'total_value': round(total_value, 2)
         }
+        if not os.path.exists(self.user_file):
+    self.users = {
+        'admin': {
+            'password': hashlib.sha256('admin123'.encode()).hexdigest(),
+            'name': 'Администратор',
+            'role': 'admin'
+        },
+        'user': {
+            'password': hashlib.sha256('user123'.encode()).hexdigest(),
+            'name': 'Менеджер',
+            'role': 'user'
+        }
+    }
+    self.save_users()
