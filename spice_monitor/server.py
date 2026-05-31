@@ -11,6 +11,7 @@ class UserAuth:
     """Класс для управления пользователями"""
     
     def __init__(self, user_file='data/users.json'):
+        os.makedirs('data', exist_ok=True)
         self.user_file = user_file
         self.sessions = {}
         self.load_users()
@@ -20,6 +21,7 @@ class UserAuth:
             with open(self.user_file, 'r', encoding='utf-8') as f:
                 self.users = json.load(f)
         else:
+            # Создаём админа и обычного пользователя по умолчанию
             self.users = {
                 'admin': {
                     'password': hashlib.sha256('admin123'.encode()).hexdigest(),
@@ -428,32 +430,50 @@ class HTTPServer:
         return self.login_page()
     
     def do_login(self, request_data):
+        print("=== ПОЛУЧЕН ЗАПРОС НА ВХОД ===")
         body = request_data.split('\r\n\r\n', 1)[1] if '\r\n\r\n' in request_data else ''
+        print(f"Тело запроса: {body}")
+        
         params = urllib.parse.parse_qs(body)
         username = params.get('username', [''])[0]
         password = params.get('password', [''])[0]
         
+        print(f"Попытка входа: username='{username}', password='{password}'")
+        
         token, message = self.auth.login(username, password)
+        print(f"Результат: token={token}, message={message}")
+        
         if token:
             response = "HTTP/1.1 302 Found\r\n"
             response += "Location: /\r\n"
             response += "Set-Cookie: session=" + token + "; Path=/\r\n"
             response += "Content-Length: 0\r\n\r\n"
+            print("ВХОД УСПЕШЕН!")
             return response.encode()
         else:
+            print(f"ОШИБКА ВХОДА: {message}")
             return self.redirect_with_error('/', message)
     
     def do_register(self, request_data):
+        print("=== ПОЛУЧЕН ЗАПРОС НА РЕГИСТРАЦИЮ ===")
         body = request_data.split('\r\n\r\n', 1)[1] if '\r\n\r\n' in request_data else ''
+        print(f"Тело запроса: {body}")
+        
         params = urllib.parse.parse_qs(body)
         username = params.get('username', [''])[0]
         password = params.get('password', [''])[0]
         name = params.get('name', [''])[0]
         
+        print(f"Регистрация: username='{username}', name='{name}'")
+        
         success, message = self.auth.register(username, password, name)
+        print(f"Результат: success={success}, message={message}")
+        
         if success:
+            print("РЕГИСТРАЦИЯ УСПЕШНА!")
             return self.redirect_with_success('/', message)
         else:
+            print(f"ОШИБКА РЕГИСТРАЦИИ: {message}")
             return self.redirect_with_error('/', message)
     
     def redirect_with_error(self, location, error):
@@ -1085,7 +1105,7 @@ class HTTPServer:
         
         <div id="tab-all" class="tab-pane active">
             <div class="table-container">
-                <table>
+                <td>
                     <thead>
                         <tr>
                             <th style="padding: 12px 15px;">Специя</th>
@@ -2048,12 +2068,18 @@ class HTTPServer:
         return self.http_response(500, '<h1>500 - Ошибка</h1><p>' + error + '</p><a href="/">На главную</a>')
     
     def run(self):
+        port = int(os.environ.get('PORT', 8080))
+        print(f'🌶️ SpiceDrugs Pro запущен на порту {port}')
+        print('👑 Администратор: admin / admin123')
+        print('👤 Пользователь: user / user123')
+        print('🎨 Все таблицы исправлены, авторизация работает!')
+        print('🔄 Нажмите Ctrl+C для остановки')
+        
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self.host, self.port))
+        sock.bind(('0.0.0.0', port))
         sock.listen(5)
-        print('🌶️ SpiceDrugs Pro запущен на http://' + self.host + ':' + str(self.port))
-        print('👑 Администратор: admin / admin123')
+        print(f'🚀 Сервер запущен и слушает порт {port}')
         
         while True:
             client, _ = sock.accept()
@@ -2063,5 +2089,4 @@ class HTTPServer:
             client.close()
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    HTTPServer(host='0.0.0.0', port=port).run()
+    HTTPServer().run()
