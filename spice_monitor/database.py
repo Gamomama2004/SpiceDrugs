@@ -2,23 +2,136 @@ import json
 import os
 from datetime import datetime, timedelta
 import random
+import hashlib
+import secrets
+
+class UserAuth:
+    """Класс для управления пользователями (данные в памяти)"""
+    
+    def __init__(self):
+        # Храним пользователей прямо в памяти сервера
+        self.users = {
+            'admin': {
+                'password': hashlib.sha256('admin123'.encode()).hexdigest(),
+                'name': 'Администратор',
+                'role': 'admin',
+                'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            },
+            'user': {
+                'password': hashlib.sha256('user123'.encode()).hexdigest(),
+                'name': 'Менеджер',
+                'role': 'user',
+                'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        }
+        self.sessions = {}
+        print("✅ Пользователи загружены в память:")
+        print(f"   - admin / admin123 (администратор)")
+        print(f"   - user / user123 (пользователь)")
+    
+    def get_all_users(self):
+        """Получить всех пользователей"""
+        return self.users
+    
+    def get_user_by_username(self, username):
+        """Получить пользователя по имени"""
+        return self.users.get(username)
+    
+    def register(self, username, password, name):
+        """Регистрация нового пользователя (временно, до перезапуска сервера)"""
+        if username in self.users:
+            return False, "Пользователь уже существует"
+        if len(password) < 4:
+            return False, "Пароль должен быть минимум 4 символа"
+        if not name:
+            name = username
+        
+        self.users[username] = {
+            'password': hashlib.sha256(password.encode()).hexdigest(),
+            'name': name,
+            'role': 'user',
+            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        print(f"✅ Зарегистрирован новый пользователь: {username}")
+        return True, "Регистрация успешна"
+    
+    def login(self, username, password):
+        """Вход пользователя"""
+        if username not in self.users:
+            return None, "Неверное имя пользователя"
+        
+        hashed = hashlib.sha256(password.encode()).hexdigest()
+        if self.users[username]['password'] != hashed:
+            return None, "Неверный пароль"
+        
+        token = secrets.token_hex(32)
+        self.sessions[token] = username
+        print(f"✅ Вход выполнен: {username}")
+        return token, "Вход выполнен"
+    
+    def logout(self, token):
+        """Выход пользователя"""
+        if token in self.sessions:
+            username = self.sessions[token]
+            del self.sessions[token]
+            print(f"👋 Выход: {username}")
+            return True
+        return False
+    
+    def check_auth(self, token):
+        """Проверка авторизации по токену"""
+        return token in self.sessions
+    
+    def get_user(self, token):
+        """Получить данные пользователя по токену"""
+        if token in self.sessions:
+            username = self.sessions[token]
+            return self.users.get(username)
+        return None
+    
+    def is_admin(self, token):
+        """Проверка, является ли пользователь администратором"""
+        user = self.get_user(token)
+        return user and user.get('role') == 'admin'
+    
+    def delete_user(self, username):
+        """Удаление пользователя (нельзя удалить admin)"""
+        if username == 'admin':
+            return False, "Нельзя удалить главного администратора"
+        if username in self.users:
+            del self.users[username]
+            # Также удаляем все сессии этого пользователя
+            sessions_to_delete = [t for t, u in self.sessions.items() if u == username]
+            for t in sessions_to_delete:
+                del self.sessions[t]
+            print(f"🗑️ Пользователь удалён: {username}")
+            return True, "Пользователь удалён"
+        return False, "Пользователь не найден"
 
 class SpiceDatabase:
+    """Класс для работы с данными о специях"""
+    
     def __init__(self, data_file='data/spices.json'):
         self.data_file = data_file
         self.spices = []
         self.load_data()
     
     def load_data(self):
+        """Загрузка данных о специях из файла или создание начальных"""
         if os.path.exists(self.data_file):
-            with open(self.data_file, 'r', encoding='utf-8') as f:
-                self.spices = json.load(f)
+            try:
+                with open(self.data_file, 'r', encoding='utf-8') as f:
+                    self.spices = json.load(f)
+                print(f"✅ Загружено {len(self.spices)} специй из файла")
+            except:
+                self.spices = self.generate_spices()
+                self.save_data()
         else:
             os.makedirs('data', exist_ok=True)
-            self.spices = self.generate_spices_with_history()
+            self.spices = self.generate_spices()
             self.save_data()
     
-    def generate_spices_with_history(self):
+    def generate_spices(self):
         """Генерация 34 специй с историей цен за год"""
         base_spices = [
             {'name': 'Чёрный перец горошком', 'base_price': 350, 'supplier': 'ООО "Специи Мира"', 'in_stock': 100, 'volatility': 0.08},
@@ -62,6 +175,7 @@ class SpiceDatabase:
         end_date = datetime.now()
         
         for spice_data in base_spices:
+            # Генерируем историю цен за 365 дней
             price_history = []
             current_price = spice_data['base_price']
             
@@ -82,22 +196,31 @@ class SpiceDatabase:
             })
             current_id += 1
         
+        print(f"✅ Сгенерировано {len(spices)} специй")
         return spices
     
     def save_data(self):
-        with open(self.data_file, 'w', encoding='utf-8') as f:
-            json.dump(self.spices, f, ensure_ascii=False, indent=2)
+        """Сохранение данных о специях в файл"""
+        try:
+            with open(self.data_file, 'w', encoding='utf-8') as f:
+                json.dump(self.spices, f, ensure_ascii=False, indent=2)
+            print(f"💾 Данные специй сохранены в {self.data_file}")
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения: {e}")
     
     def get_all_spices(self):
+        """Получить все специи"""
         return self.spices
     
     def get_spice_by_id(self, spice_id):
+        """Найти специю по ID"""
         for spice in self.spices:
             if spice['id'] == spice_id:
                 return spice
         return None
     
     def add_spice(self, name, price, supplier, stock):
+        """Добавить новую специю"""
         new_id = max([s['id'] for s in self.spices]) + 1 if self.spices else 1
         today = datetime.now().strftime('%Y-%m-%d')
         new_spice = {
@@ -110,9 +233,11 @@ class SpiceDatabase:
         }
         self.spices.append(new_spice)
         self.save_data()
+        print(f"➕ Добавлена специя: {name}")
         return new_spice
     
     def update_spice(self, spice_id, name, price, supplier, stock):
+        """Обновить информацию о специи"""
         spice = self.get_spice_by_id(spice_id)
         if spice:
             spice['name'] = name
@@ -125,14 +250,22 @@ class SpiceDatabase:
                 })
                 spice['current_price'] = float(price)
             self.save_data()
+            print(f"✏️ Обновлена специя: {name}")
             return True
         return False
     
     def delete_spice(self, spice_id):
-        self.spices = [s for s in self.spices if s['id'] != spice_id]
-        self.save_data()
+        """Удалить специю"""
+        spice = self.get_spice_by_id(spice_id)
+        if spice:
+            self.spices = [s for s in self.spices if s['id'] != spice_id]
+            self.save_data()
+            print(f"🗑️ Удалена специя: {spice['name']}")
+            return True
+        return False
     
     def update_prices_randomly(self):
+        """Случайное обновление цен (для мониторинга)"""
         for spice in self.spices:
             change = random.uniform(-0.1, 0.1)
             new_price = round(max(10, spice['current_price'] * (1 + change)), 2)
@@ -143,6 +276,7 @@ class SpiceDatabase:
                 })
                 spice['current_price'] = new_price
         self.save_data()
+        print("🔄 Цены обновлены (мониторинг)")
         return True
     
     def get_price_history_for_period(self, spice_id, period):
@@ -168,6 +302,7 @@ class SpiceDatabase:
         return dates, prices
     
     def get_statistics(self):
+        """Получить статистику по ценам"""
         if not self.spices:
             return {'total_items': 0, 'avg_price': 0, 'min_price': 0, 'max_price': 0, 'total_stock': 0, 'total_value': 0}
         
